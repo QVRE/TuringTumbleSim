@@ -493,6 +493,13 @@ int main() {
 				running = true;
 				Deselect();
 				p.RemoveAll(-1);
+				//ensure clean start
+				G.Reset();
+				output_marbles.clear();
+				//get next input marble
+				bool m = input_marbles.front();
+				input_marbles.pop_front();
+				G.AddMarble(m ? 1 : -1, static_cast<short>(m ? COLOR_RED : COLOR_BLUE));
 			}
 		}
 		
