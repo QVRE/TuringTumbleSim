@@ -47,11 +47,13 @@ public:
 	
 	Marble() : x(0), y(0), direction(-1), color(COLOR_WHITE), active(false) {}
 	
+	short GetColor() const { return color; }
 	void SetColor(short clr) { color = clr; }
 	int GetDirection() const { return direction; }
 	void SetDirection(int d) { direction = (d >= 0 ? 1 : -1); }
 	void Reflect() { direction = -direction; }
 	bool IsActive() const { return active; }
+	void SetActive(bool a) { active = a; }
 	int GetValue() const {
 		if (color == COLOR_BLUE) return 0;
 		if (color == COLOR_RED) return 1;
@@ -77,25 +79,33 @@ struct collision_result {
 	int output; //0,1 or -1 for none
 	bool marble_reset; //set when marble has been reset
 	bool turn; //set when tile turns neighbors
+	bool turn_parent; //set by recursive tile's contents
+	bool inside_tile;
+	bool exit_tile;
 	
 public:
 	void Reset(void) {
 		output = -1;
 		marble_reset = false;
 		turn = false;
+		turn_parent = false;
+		inside_tile = false;
+		exit_tile = false;
 	}
 };
 
 class BaseTile {
 public:
 	//called when simulation starts
-	virtual void Reset() {}
+	virtual void Reset(void) {}
 	//called when user clicks on tile
-	virtual void Interract() {}
+	virtual void Interract(void) {}
 	//called when marble collides with tile
 	virtual bool Collide(Marble& m, collision_result& result) { return false; }
 	//logic for being turned by another tile
-	virtual bool Turn(void) { return false; }
+	virtual bool Turn(collision_result& result) { return false; }
+	//used for tiles that point to a different grid
+	virtual Grid* GetGrid(void) { return nullptr; }
 	
 	virtual gfx_char GetGraphic(render_info& info) const {
 		return (gfx_char){'?', COLOR_WHITE, COLOR_BLACK};
@@ -110,11 +120,16 @@ typedef shared_ptr<BaseTile> tile;
 
 class DropTile : public BaseTile {
 public:
-	tile Copy() const override {
+	tile Copy(void) const override {
 		return make_shared<DropTile>(*this);
 	}
 	void Serialize(ostream& out) const override {
 		out << "Drop\n";
+	}
+	
+	bool Turn(collision_result& result) override {
+		result.turn_parent = true;
+		return false;
 	}
 	
 	gfx_char GetGraphic(render_info& info) const override {
@@ -124,7 +139,7 @@ public:
 
 class OutputValueTile : public BaseTile {
 public:
-	tile Copy() const override {
+	tile Copy(void) const override {
 		return make_shared<OutputValueTile>(*this);
 	}
 	void Serialize(ostream& out) const override {
@@ -143,7 +158,7 @@ public:
 
 class OutputDirectionTile : public BaseTile {
 public:
-	tile Copy() const override {
+	tile Copy(void) const override {
 		return make_shared<OutputDirectionTile>(*this);
 	}
 	void Serialize(ostream& out) const override {
@@ -160,6 +175,30 @@ public:
 	}
 };
 
+class ExitTile : public BaseTile {
+public:
+	tile Copy(void) const override {
+		return make_shared<ExitTile>(*this);
+	}
+	void Serialize(ostream& out) const override {
+		out << "Exit\n";
+	}
+	
+	bool Turn(collision_result& result) override {
+		result.turn_parent = true;
+		return false;
+	}
+	
+	bool Collide(Marble& m, collision_result& result) override {
+		result.exit_tile = true;
+		return true;
+	}
+	
+	gfx_char GetGraphic(render_info& info) const override {
+		return (gfx_char){'o', COLOR_WHITE, COLOR_BLACK};
+	}
+};
+
 class LoopTile : public BaseTile {
 protected:
 	short marble_color;
@@ -167,7 +206,7 @@ protected:
 public:
 	LoopTile() : marble_color(COLOR_BLUE) {}
 	
-	tile Copy() const override {
+	tile Copy(void) const override {
 		return make_shared<LoopTile>(*this);
 	}
 	void Serialize(ostream& out) const override {
@@ -177,7 +216,7 @@ public:
 		in >> marble_color;
 	}
 	
-	void Interract() override {
+	void Interract(void) override {
 		if (marble_color == COLOR_BLUE)
 			marble_color = COLOR_RED;
 		else if (marble_color == COLOR_RED)
@@ -204,7 +243,7 @@ protected:
 public:
 	RampTile() : direction(1) {}
 	
-	tile Copy() const override {
+	tile Copy(void) const override {
 		return make_shared<RampTile>(*this);
 	}
 	void Serialize(ostream& out) const override {
@@ -214,7 +253,7 @@ public:
 		in >> direction;
 	}
 	
-	void Interract() override { direction = -direction; }
+	void Interract(void) override { direction = -direction; }
 	
 	bool Collide(Marble& m, collision_result& result) override {
 		m.SetDirection(direction);
@@ -229,7 +268,7 @@ public:
 
 class CrossTile : public BaseTile {
 public:
-	tile Copy() const override {
+	tile Copy(void) const override {
 		return make_shared<CrossTile>(*this);
 	}
 	void Serialize(ostream& out) const override {
@@ -248,7 +287,7 @@ protected:
 public:
 	BitTile() : current_dir(1) {}
 	
-	tile Copy() const override {
+	tile Copy(void) const override {
 		return make_shared<BitTile>(*this);
 	}
 	void Serialize(ostream& out) const override {
@@ -259,9 +298,9 @@ public:
 		current_dir = direction;
 	}
 	
-	void Reset() override { current_dir = direction; }
+	void Reset(void) override { current_dir = direction; }
 	
-	void Interract() override { direction = -direction, current_dir = direction; }
+	void Interract(void) override { direction = -direction, current_dir = direction; }
 	
 	bool Collide(Marble& m, collision_result& result) override {
 		m.SetDirection(current_dir);
@@ -277,7 +316,7 @@ public:
 
 class GearTile : public BaseTile {
 public:
-	tile Copy() const override {
+	tile Copy(void) const override {
 		return make_shared<GearTile>(*this);
 	}
 	void Serialize(ostream& out) const override {
@@ -288,7 +327,7 @@ public:
 		return false;
 	}
 	
-	bool Turn(void) override {
+	bool Turn(collision_result& result) override {
 		return true;
 	}
 	
@@ -297,10 +336,9 @@ public:
 	}
 };
 
-
 class GearBitTile : public BitTile {
 public:
-	tile Copy() const override {
+	tile Copy(void) const override {
 		return make_shared<GearBitTile>(*this);
 	}
 	void Serialize(ostream& out) const override {
@@ -311,7 +349,7 @@ public:
 		current_dir = direction;
 	}
 	
-	bool Turn(void) override {
+	bool Turn(collision_result& result) override {
 		current_dir = -current_dir;
 		return true;
 	}
@@ -336,18 +374,19 @@ class Grid {
 private:
 	//sparse set of tiles
 	unordered_map<pair<int, int>, tile, IntPairHash> tiles;
-	Marble marble;
 	
 	//recursive function used by TurnConnected()
-	void TurnConnected(unordered_set<pair<int, int>, IntPairHash>& v, int x, int y);
+	void TurnConnected(unordered_set<pair<int, int>, IntPairHash>& v, int x, int y, collision_result& result);
 	
 public:
+	Marble marble;
+	
 	//tile functions
 	void AddTile(int x, int y, tile t);
 	tile GetTile(int x, int y) const;
 	void RemoveTile(int x, int y);
 	void Interract(int x, int y);
-	void TurnConnected(int x, int y);
+	void TurnConnected(int x, int y, collision_result& result);
 	
 	//constructors
 	Grid() {
@@ -357,16 +396,53 @@ public:
 	//marble functions
 	void AddMarble(int direction = -1, short color = COLOR_BLUE);
 	//returns true if simulation is done
-	bool Update(collision_result& result);
+	bool Update(collision_result& result, bool root = true);
 	//called when simulation finishes, call manually to stop
 	void Reset();
 	
 	//render function
-	void Render(render_info& info, int x, int y, bool blink = true, int mx = -1, int my = -1) const;
+	void Render(render_info& info, int x, int y, bool blink = true, int mx = -1, int my = -1, short blink_color = COLOR_YELLOW+8) const;
 	
 	//for saving/loading
-	void Serialize(ofstream& out) const;
-	bool Deserialize(ifstream& in);
+	void Serialize(ostream& out) const;
+	bool Deserialize(istream& in);
+};
+
+
+//recursive tile depends on grid
+class RecursiveTile : public BaseTile {
+protected:
+	Grid grid;
+	short color;
+	bool active;
+	
+public:
+	RecursiveTile(void) : color(COLOR_YELLOW+8), active(false) {}
+	
+	void Reset(void) override {
+		grid.Reset();
+		active = false;
+	}
+	
+	tile Copy(void) const override {
+		return make_shared<RecursiveTile>(*this);
+	}
+	
+	Grid* GetGrid(void) { return &grid; }
+	
+	void Interract(void) override {
+		if (++color >= 16) color = 8;
+	}
+	
+	gfx_char GetGraphic(render_info& info) const override {
+		return (gfx_char){'#', color, COLOR_BLACK};
+	}
+	
+	//these functions are in tumble.cpp
+	bool Collide(Marble& m, collision_result& result) override;
+	bool Turn(collision_result& result) override;
+	void Serialize(ostream& out) const override;
+	void Deserialize(istream& in) override;
 };
 
 

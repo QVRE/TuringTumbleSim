@@ -57,14 +57,15 @@ int main() {
 	tiles.push_back(make_shared<GearBitTile>());
 	tiles.push_back(make_shared<CrossTile>());
 	tiles.push_back(make_shared<GearTile>());
+	tiles.push_back(make_shared<RecursiveTile>());
 	tiles.push_back(make_shared<OutputValueTile>());
 	tiles.push_back(make_shared<OutputDirectionTile>());
+	tiles.push_back(make_shared<ExitTile>());
 	tiles.push_back(make_shared<LoopTile>());
 	int tmenu_size = static_cast<int>(ceil(sqrt(static_cast<float>(tiles.size()))));
 	
 	//construct tile menu
 	Panel tmenu(0, 0,0, tmenu_size,tmenu_size);
-	tmenu.Hide();
 	tmenu.SetCharacterCallback([tiles, tmenu_size](render_info& info, int x, int y) -> gfx_char {
 		try {
 			return tiles.at(y * tmenu_size + x)->GetGraphic(info);
@@ -72,14 +73,22 @@ int main() {
 			return {'\0'};
 		}
 	});
+	tmenu.Hide();
+	
+	//construct tile options menu
+	Panel toptmenu(2, 0,0, 5,2);
+	toptmenu.AddString(0,0, "Copy ");
+	toptmenu.AddString(0,1, "Enter");
+	toptmenu.Hide();
 	
 	//tile grid
 	Grid G;
-	Grid* g = &G;
 	//panel list
 	Panels p;
 	shared_ptr<Panel> tile_menu = make_shared<Panel>(tmenu);
 	p.Add(tile_menu);
+	shared_ptr<Panel> tile_opt_menu = make_shared<Panel>(toptmenu);
+	p.Add(tile_opt_menu);
 	
 	
 	// Constants
@@ -109,16 +118,19 @@ int main() {
 	
 	//camera
 	int cx = 0, cy = 0;
+	Grid* g = &G;
+	vector<tuple<Grid*, int, int>> camera_stack;
 	//mouse and selected tile position
 	int mx, my, sx, sy;
 	bool selected = false;
 	bool start_input = false;
+	bool copying = false;
+	bool last_blink = false;
 	
 	//simulation variables
 	float time = 0;
 	int frame = 0, counter = 0;
 	bool running = false, start = false, stop = false;
-	bool last_blink = false;
 	
 	
 	//tile selection / deselection functions
@@ -126,9 +138,11 @@ int main() {
 		selected = true;
 		sx = x, sy = y;
 	};
-	auto Deselect = [&selected, &tile_menu](void) -> void {
+	auto Deselect = [&selected, &tile_menu, &copying, &tile_opt_menu](void) -> void {
 		selected = false;
+		copying = false;
 		tile_menu->Hide();
+		tile_opt_menu->Hide();
 	};
 	
 	auto ThrowMessage = [&p](string str, int x = 0, int y = 0) -> void {
@@ -276,11 +290,19 @@ int main() {
 					break;
 				case KEY_BACKSPACE:
 					if (start_input) {
-						if (input_marbles.size() > 0) input_marbles.pop_back();
+						if (!input_marbles.empty()) input_marbles.pop_back();
 						break;
 					}
 					if (running) {
 						stop = true;
+						break;
+					}
+					if (!camera_stack.empty()) {
+						tuple<Grid*, int, int>& b = camera_stack.back();
+						g = get<0>(b);
+						cx = get<1>(b);
+						cy = get<2>(b);
+						camera_stack.pop_back();
 						break;
 					}
 					break;
@@ -303,7 +325,7 @@ int main() {
 						//get selected position in scene
 						int wx, wy;
 						toWorldCoords(info, cx + sx, cy + sy, wx, wy);
-						tile t = g->GetTile(wx, wy);
+						tile selt = g->GetTile(wx, wy);
 						
 						if (inside_panel) {
 							if (left_click && (ox < 0 || oy < 0)) break;
@@ -328,9 +350,31 @@ int main() {
 							if (pclick->id == 0 && selected) {
 								const int off = oy * tmenu_size + ox;
 								if (off >= tiles.size()) break;
-								if (t) break;
+								if (selt) break;
 								g->AddTile(wx, wy, tiles[off]->Copy());
 								Deselect();
+								break;
+							}
+							//tile options menu clicked
+							if (pclick->id == 2 && selected) {
+								Deselect();
+								switch (oy) {
+									case 0: //Copy
+										selected = true;
+										copying = true;
+										break;
+									case 1: //Enter
+										Grid *newg = selt->GetGrid();
+										if (newg == nullptr) {
+											ThrowMessage("Cannot enter this tile");
+											break;
+										}
+										camera_stack.push_back({g, cx, cy});
+										g = newg;
+										cx = 0;
+										cy = 0;
+										break;
+								}
 								break;
 							}
 							break;
@@ -338,7 +382,7 @@ int main() {
 						
 						//get mouse position in scene
 						toWorldCoords(info, cx + mx, cy + my, wx, wy);
-						t = g->GetTile(wx, wy);
+						tile t = g->GetTile(wx, wy);
 						
 						if (left_click) {
 							//interract with tile
@@ -347,11 +391,18 @@ int main() {
 									t->Interract();
 									Deselect();
 								} else {
+									//show tile options menu
 									Select(mx, my);
+									time = 0;
+									tile_opt_menu->Show();
+									tile_opt_menu->Move(mx+1, my+1);
 								}
 								break;
 							}
 							if (selected) {
+								if (copying) {
+									g->AddTile(wx, wy, selt->Copy());
+								}
 								Deselect();
 								break;
 							}
@@ -376,7 +427,8 @@ int main() {
 		//Rendering
 		
 		bool blink = (time >= 0.5 || running);
-		g->Render(info, cx, cy, blink, selected ? sx : -1, sy);
+		short blink_color = (copying ? COLOR_BLUE+8 : COLOR_YELLOW+8);
+		g->Render(info, cx, cy, blink, selected ? sx : -1, sy, blink_color);
 		if (blink && !last_blink) {
 			for (auto it = tiles.begin(); it != tiles.end(); it++)
 				(*it)->Interract();
@@ -391,41 +443,47 @@ int main() {
 			if (counter >= frames_per_tick) {
 				counter = 0;
 				
-				//tick scene
-				frame++;
-				collision_result result;
-				bool add_marble = G.Update(result);
-				
-				if (result.output >= 0) {
-					output_marbles.push_back(result.output > 0);
-				}
-				
-				if (add_marble || stop) {
-					if (input_marbles.size() > 0 && !stop) {
-						//get next input marble
-						bool m = input_marbles.front();
-						input_marbles.pop_front();
-						G.AddMarble(m ? 1 : -1, static_cast<short>(m ? COLOR_RED : COLOR_BLUE));
-					} else {
-						//simulation is done
-						running = false;
-						stop = false;
-						G.Reset();
-						
-						//print output on panel
-						string out_str = "Output:";
-						Panel pout(-1, 0,0, max(output_marbles.size(), out_str.length()),2);
-						pout.AddString(0,0, out_str);
-						
-						out_str = "";
-						for (bool b : output_marbles)
-							out_str += (b ? '1' : '0');
-						pout.AddString(0,1, out_str);
-						output_marbles.clear();
-						
-						p.Add(make_shared<Panel>(pout));
+				bool inside = false;
+				do {
+					//tick scene
+					frame++;
+					collision_result result;
+					bool add_marble = G.Update(result);
+					
+					if (result.output >= 0) {
+						output_marbles.push_back(result.output > 0);
 					}
-				}
+					
+					inside = result.inside_tile;
+					
+					if (add_marble || stop) {
+						inside = false;
+						if (input_marbles.size() > 0 && !stop) {
+							//get next input marble
+							bool m = input_marbles.front();
+							input_marbles.pop_front();
+							G.AddMarble(m ? 1 : -1, static_cast<short>(m ? COLOR_RED : COLOR_BLUE));
+						} else {
+							//simulation is done
+							running = false;
+							stop = false;
+							G.Reset();
+							
+							//print output on panel
+							string out_str = "Output:";
+							Panel pout(-1, 0,0, max(output_marbles.size(), out_str.length()),2);
+							pout.AddString(0,0, out_str);
+							
+							out_str = "";
+							for (bool b : output_marbles)
+								out_str += (b ? '1' : '0');
+							pout.AddString(0,1, out_str);
+							output_marbles.clear();
+							
+							p.Add(make_shared<Panel>(pout));
+						}
+					}
+				} while (inside);
 			}
 		} else {
 			p.Render(info);

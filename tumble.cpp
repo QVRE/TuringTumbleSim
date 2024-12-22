@@ -1,5 +1,4 @@
 #include "tumble.hpp"
-#include <cctype>
 
 int modulo2(int x) {
 	int y = x % 2;
@@ -66,7 +65,7 @@ void Grid::AddMarble(int direction, short color) {
 	marble.Start(direction, color);
 }
 
-void Grid::TurnConnected(unordered_set<pair<int, int>, IntPairHash>& v, int x, int y) {
+void Grid::TurnConnected(unordered_set<pair<int, int>, IntPairHash>& v, int x, int y, collision_result& result) {
 	const int directions[4][2] = {{1,0}, {0,1}, {-1,0}, {0,-1}};
 	
 	for (auto& dir : directions) {
@@ -78,38 +77,44 @@ void Grid::TurnConnected(unordered_set<pair<int, int>, IntPairHash>& v, int x, i
 		if (t == nullptr) continue;
 		
 		v.insert({i, j});
-		if (t->Turn())
-			TurnConnected(v, i, j);
+		if (t->Turn(result))
+			TurnConnected(v, i, j, result);
 	}
 }
 
-void Grid::TurnConnected(int x, int y) {
+void Grid::TurnConnected(int x, int y, collision_result& result) {
 	unordered_set<pair<int, int>, IntPairHash> visited = {{x,y}};
 	
-	TurnConnected(visited, x, y);
+	TurnConnected(visited, x, y, result);
 }
 
-bool Grid::Update(collision_result& result) {
+bool Grid::Update(collision_result& result, bool root) {
 	result.Reset();
-	//no marble
-	if (!marble.IsActive()) return true;
 	
-	marble.Update();
+	if (marble.IsActive()) marble.Update();
 	const int x = marble.x, y = marble.y;
-	tile t = GetTile(x, y);
 	
-	if (t == nullptr) {
-		return true;
-	}
+	tile t = GetTile(x, y);
+	if (t == nullptr) return true;
 	
 	bool done = t->Collide(marble, result);
-	if (result.turn) {
-		TurnConnected(x, y);
+	
+	//will run forever, stop here
+	if (!marble.IsActive() && !result.inside_tile) {
+		return true;
 	}
-	if (done && result.marble_reset) {
-		//send the event up the grid chain
+	//disable marble because we're inside another tile
+	if (result.inside_tile) {
+		marble.SetActive(false);
+	}
+	if (result.turn) {
+		TurnConnected(x, y, result);
+	}
+	if (result.marble_reset && root) {
+		//intercept done signal since we are the root grid
 		done = false;
 	}
+	
 	return done;
 }
 
@@ -119,7 +124,7 @@ void Grid::Reset() {
 		t->Reset();
 }
 
-void Grid::Render(render_info& info, int x, int y, bool blink, int mx, int my) const {
+void Grid::Render(render_info& info, int x, int y, bool blink, int mx, int my, short blink_color) const {
 	//render bounds
 	int start_x, start_y;
 	toWorldCoords(info, x, y, start_x, start_y);
@@ -149,7 +154,7 @@ void Grid::Render(render_info& info, int x, int y, bool blink, int mx, int my) c
 			}
 			
 			if (x == mx && y == my && blink) {
-				c.bg = COLOR_YELLOW;
+				c.bg = blink_color;
 			}
 			
 			DrawChar(c, x, y, info.color);
@@ -157,16 +162,80 @@ void Grid::Render(render_info& info, int x, int y, bool blink, int mx, int my) c
 }
 
 
+// Recursive tile
+
+bool RecursiveTile::Collide(Marble& m, collision_result& result) {
+	//inform upper grid
+	result.inside_tile = true;
+	
+	//marble just entered
+	if (!active) {
+		active = true;
+		grid.AddMarble(m.GetDirection(), m.GetColor());
+	}
+	
+	collision_result internal_result;
+	bool done = grid.Update(internal_result, false);
+	
+	//exit tile
+	if (done) {
+		//intercept exit since we can handle it
+		if (internal_result.exit_tile)
+			done = false;
+		
+		result.inside_tile = false;
+		active = false;
+		//configure outside marble
+		m.SetColor(grid.marble.GetColor());
+		m.SetDirection(grid.marble.GetDirection());
+		m.SetActive(true);
+	}
+	if (internal_result.turn_parent) {
+		result.turn = true;
+	}
+	if (internal_result.marble_reset) {
+		//pass event towards root
+		result.marble_reset = true;
+		m.Start(grid.marble.GetDirection(), grid.marble.GetColor());
+	}
+	
+	return done;
+}
+
+bool RecursiveTile::Turn(collision_result& result) {
+	collision_result tmp;
+	grid.TurnConnected(0, 0, tmp);
+	return true;
+}
+
+void RecursiveTile::Serialize(ostream& out) const {
+	out << "Grid " << color << " {\n";
+	grid.Serialize(out);
+	out << "}\n";
+}
+
+void RecursiveTile::Deserialize(istream& in) {
+	char bracket;
+	
+	in >> color >> std::ws >> bracket;
+	
+	if (in.fail() || bracket != '{' || grid.Deserialize(in)) {
+		in.setstate(ios::failbit); //fail manually
+		return;
+	}
+}
+
+
 // Serialization / Deserialization
 
-void Grid::Serialize(ofstream& out) const {
+void Grid::Serialize(ostream& out) const {
 	for (auto& [pos, t] : tiles) {
 		out << pos.first << " " << pos.second << " ";
 		t->Serialize(out);
 	}
 }
 
-bool Grid::Deserialize(ifstream& in) {
+bool Grid::Deserialize(istream& in) {
 	tiles.clear();
 	AddTile(0, 0, make_shared<DropTile>());
 	
@@ -181,6 +250,8 @@ bool Grid::Deserialize(ifstream& in) {
 			t = make_shared<OutputValueTile>();
 		else if (tile_type == "OutputDirection")
 			t = make_shared<OutputDirectionTile>();
+		else if (tile_type == "Exit")
+			t = make_shared<ExitTile>();
 		else if (tile_type == "Loop")
 			t = make_shared<LoopTile>();
 		else if (tile_type == "Ramp")
@@ -193,6 +264,8 @@ bool Grid::Deserialize(ifstream& in) {
 			t = make_shared<GearTile>();
 		else if (tile_type == "GearBit")
 			t = make_shared<GearBitTile>();
+		else if (tile_type == "Grid")
+			t = make_shared<RecursiveTile>();
 		else
 			return true;
 		
@@ -203,15 +276,15 @@ bool Grid::Deserialize(ifstream& in) {
 		AddTile(x, y, t);
 	}
 	
-	if (in.fail() && !in.eof()) return true;
+	in.clear();
 	
-	//ensure nothing is left
-	string remaining;
-	if (getline(in, remaining)) {
-		//check if only whitespace
-		if (!remaining.empty() && !all_of(remaining.begin(), remaining.end(), ::isspace)) {
-			return true;
-		}
+	in >> std::ws;
+	
+	//hack for special case of recursion
+	char bracket;
+	if (!in.eof()) {
+		in >> bracket;
+		if (bracket != '}') return true;
 	}
 	
 	return false; //no errors
