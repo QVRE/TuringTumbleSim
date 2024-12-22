@@ -55,6 +55,7 @@ int main() {
 	tiles.push_back(make_shared<RampTile>());
 	tiles.push_back(make_shared<BitTile>());
 	tiles.push_back(make_shared<GearBitTile>());
+	tiles.push_back(make_shared<CrossTile>());
 	tiles.push_back(make_shared<GearTile>());
 	tiles.push_back(make_shared<OutputValueTile>());
 	tiles.push_back(make_shared<OutputDirectionTile>());

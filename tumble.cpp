@@ -185,6 +185,8 @@ bool Grid::Deserialize(ifstream& in) {
 			t = make_shared<LoopTile>();
 		else if (tile_type == "Ramp")
 			t = make_shared<RampTile>();
+		else if (tile_type == "Cross")
+			t = make_shared<CrossTile>();
 		else if (tile_type == "Bit")
 			t = make_shared<BitTile>();
 		else if (tile_type == "Gear")

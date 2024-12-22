@@ -227,6 +227,20 @@ public:
 	}
 };
 
+class CrossTile : public BaseTile {
+public:
+	tile Copy() const override {
+		return make_shared<CrossTile>(*this);
+	}
+	void Serialize(ostream& out) const override {
+		out << "Cross\n";
+	}
+	
+	gfx_char GetGraphic(render_info& info) const override {
+		return (gfx_char){'X', COLOR_YELLOW, COLOR_BLACK};
+	}
+};
+
 class BitTile : public RampTile {
 protected:
 	int current_dir;
