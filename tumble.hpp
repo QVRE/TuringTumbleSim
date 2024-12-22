@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -87,8 +88,6 @@ public:
 
 class BaseTile {
 public:
-	virtual shared_ptr<BaseTile> Copy() const = 0;
-	
 	//called when simulation starts
 	virtual void Reset() {}
 	//called when user clicks on tile
@@ -101,6 +100,10 @@ public:
 	virtual gfx_char GetGraphic(render_info& info) const {
 		return (gfx_char){'?', COLOR_WHITE, COLOR_BLACK};
 	}
+	
+	virtual shared_ptr<BaseTile> Copy() const = 0;
+	virtual void Serialize(ostream& out) const = 0;
+	virtual void Deserialize(istream& in) {}
 };
 
 typedef shared_ptr<BaseTile> tile;
@@ -109,6 +112,9 @@ class DropTile : public BaseTile {
 public:
 	tile Copy() const override {
 		return make_shared<DropTile>(*this);
+	}
+	void Serialize(ostream& out) const override {
+		out << "Drop\n";
 	}
 	
 	gfx_char GetGraphic(render_info& info) const override {
@@ -120,6 +126,9 @@ class OutputValueTile : public BaseTile {
 public:
 	tile Copy() const override {
 		return make_shared<OutputValueTile>(*this);
+	}
+	void Serialize(ostream& out) const override {
+		out << "OutputValue\n";
 	}
 	
 	bool Collide(Marble& m, collision_result& result) override {
@@ -136,6 +145,9 @@ class OutputDirectionTile : public BaseTile {
 public:
 	tile Copy() const override {
 		return make_shared<OutputDirectionTile>(*this);
+	}
+	void Serialize(ostream& out) const override {
+		out << "OutputDirection\n";
 	}
 	
 	bool Collide(Marble& m, collision_result& result) override {
@@ -157,6 +169,12 @@ public:
 	
 	tile Copy() const override {
 		return make_shared<LoopTile>(*this);
+	}
+	void Serialize(ostream& out) const override {
+		out << "Loop " << marble_color << "\n";
+	}
+	void Deserialize(istream& in) override {
+		in >> marble_color;
 	}
 	
 	void Interract() override {
@@ -189,6 +207,12 @@ public:
 	tile Copy() const override {
 		return make_shared<RampTile>(*this);
 	}
+	void Serialize(ostream& out) const override {
+		out << "Ramp " << direction << "\n";
+	}
+	void Deserialize(istream& in) override {
+		in >> direction;
+	}
 	
 	void Interract() override { direction = -direction; }
 	
@@ -213,6 +237,13 @@ public:
 	tile Copy() const override {
 		return make_shared<BitTile>(*this);
 	}
+	void Serialize(ostream& out) const override {
+		out << "Bit " << direction << "\n";
+	}
+	void Deserialize(istream& in) override {
+		in >> direction;
+		current_dir = direction;
+	}
 	
 	void Reset() override { current_dir = direction; }
 	
@@ -235,6 +266,9 @@ public:
 	tile Copy() const override {
 		return make_shared<GearTile>(*this);
 	}
+	void Serialize(ostream& out) const override {
+		out << "Gear\n";
+	}
 	
 	bool Collide(Marble& m, collision_result& result) override {
 		return false;
@@ -254,6 +288,13 @@ class GearBitTile : public BitTile {
 public:
 	tile Copy() const override {
 		return make_shared<GearBitTile>(*this);
+	}
+	void Serialize(ostream& out) const override {
+		out << "GearBit " << direction << "\n";
+	}
+	void Deserialize(istream& in) override {
+		in >> direction;
+		current_dir = direction;
 	}
 	
 	bool Turn(void) override {
@@ -296,7 +337,6 @@ public:
 	
 	//constructors
 	Grid() {
-		tiles = {};
 		AddTile(0, 0, make_shared<DropTile>());
 	}
 	
@@ -309,6 +349,10 @@ public:
 	
 	//render function
 	void Render(render_info& info, int x, int y, bool blink = true, int mx = -1, int my = -1) const;
+	
+	//for saving/loading
+	void Serialize(ofstream& out) const;
+	bool Deserialize(ifstream& in);
 };
 
 
@@ -326,7 +370,7 @@ private:
 	
 	//callback functions
 	typedef function<gfx_char(render_info&, int, int)> charFunction;
-	typedef function<void(render_info&, int, int, int, int)> renderFunction;
+	typedef function<void(Panel&, render_info&, int, int, int, int)> renderFunction;
 	
 	//return '\0' for nothing
 	charFunction charFunc;
@@ -339,12 +383,17 @@ public:
 		: id(id), x(x), y(y), w(w), h(h), hide(false) {}
 	
 	void Resize(int w, int h) { this->w = w, this->h = h; }
+	void Fit(int w, int h) {
+		if (this->w < w) this->w = w;
+		if (this->h < h) this->h = h;
+	}
 	void Move(int x, int y) { this->x = x, this->y = y; }
 	void Hide(void) { hide = true; }
 	void Show(void) { hide = false; }
 	bool IsHidden(void) const { return hide; }
 	
 	void AddString(int x, int y, string s);
+	void EditString(int index, string s);
 	
 	void SetCharacterCallback(charFunction cf) { charFunc = cf; }
 	void SetRenderCallback(renderFunction rf) { renderFunc = rf; }
@@ -352,7 +401,7 @@ public:
 	//if panel is touched, returns true and sets offset. Border returns an offset of (-1,-1)
 	bool Inside(int x, int y, int& ox, int& oy) const;
 	
-	void Render(render_info& info) const;
+	void Render(render_info& info);
 };
 
 class Panels {

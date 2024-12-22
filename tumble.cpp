@@ -1,4 +1,5 @@
 #include "tumble.hpp"
+#include <cctype>
 
 int modulo2(int x) {
 	int y = x % 2;
@@ -156,6 +157,65 @@ void Grid::Render(render_info& info, int x, int y, bool blink, int mx, int my) c
 }
 
 
+// Serialization / Deserialization
+
+void Grid::Serialize(ofstream& out) const {
+	for (auto& [pos, t] : tiles) {
+		out << pos.first << " " << pos.second << " ";
+		t->Serialize(out);
+	}
+}
+
+bool Grid::Deserialize(ifstream& in) {
+	tiles.clear();
+	AddTile(0, 0, make_shared<DropTile>());
+	
+	int x, y;
+	string tile_type;
+	
+	while (in >> x >> y >> tile_type) {
+		tile t;
+		if (tile_type == "Drop")
+			t = make_shared<DropTile>();
+		else if (tile_type == "OutputValue")
+			t = make_shared<OutputValueTile>();
+		else if (tile_type == "OutputDirection")
+			t = make_shared<OutputDirectionTile>();
+		else if (tile_type == "Loop")
+			t = make_shared<LoopTile>();
+		else if (tile_type == "Ramp")
+			t = make_shared<RampTile>();
+		else if (tile_type == "Bit")
+			t = make_shared<BitTile>();
+		else if (tile_type == "Gear")
+			t = make_shared<GearTile>();
+		else if (tile_type == "GearBit")
+			t = make_shared<GearBitTile>();
+		else
+			return true;
+		
+		t->Deserialize(in);
+		
+		if (in.fail()) return true;
+		
+		AddTile(x, y, t);
+	}
+	
+	if (in.fail() && !in.eof()) return true;
+	
+	//ensure nothing is left
+	string remaining;
+	if (getline(in, remaining)) {
+		//check if only whitespace
+		if (!remaining.empty() && !all_of(remaining.begin(), remaining.end(), ::isspace)) {
+			return true;
+		}
+	}
+	
+	return false; //no errors
+}
+
+
 // GUI
 
 void DrawChar(gfx_char c, int x, int y, bool color) {
@@ -198,7 +258,12 @@ void Panel::AddString(int x, int y, string s) {
 	str.push_back(tuple<int, int, string>(x, y, s));
 }
 
-void Panel::Render(render_info& info) const {
+void Panel::EditString(int index, string s) {
+	if (index < 0 || index >= str.size()) return;
+	get<2>(str[index]) = s;
+}
+
+void Panel::Render(render_info& info) {
 	if (hide) return;
 	
 	//border
@@ -210,7 +275,7 @@ void Panel::Render(render_info& info) const {
 	}
 	
 	//call render function with offset and width,height
-	if (renderFunc) renderFunc(info, x+1, y+1, w, h);
+	if (renderFunc) renderFunc(*this, info, x+1, y+1, w, h);
 	
 	//call character function for every pixel
 	if (charFunc)

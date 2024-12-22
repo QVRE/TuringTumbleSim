@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <vector>
 #include <cmath>
 #include <deque>
@@ -79,9 +80,22 @@ int main() {
 	shared_ptr<Panel> tile_menu = make_shared<Panel>(tmenu);
 	p.Add(tile_menu);
 	
+	
+	// Constants
+	
+	const int move_amount = 1;
+	const int frames_per_tick = 5;
+	
+	
+	// Variables
+	
 	//input variables
 	MEVENT mevent; //for mouse events
 	int ch; //input character or other
+	string input_string;
+	bool reading_string = false;
+	int string_panel = -2;
+	
 	deque<bool> input_marbles; //used instead of vector for its pop_front()
 	deque<bool> output_marbles;
 	
@@ -92,21 +106,19 @@ int main() {
 		return {m ? '1' : '0', static_cast<short>(m ? COLOR_RED : COLOR_BLUE), COLOR_BLACK};
 	};
 	
-	const int move_amount = 1;
-	const int frames_per_tick = 5;
-	
 	//camera
 	int cx = 0, cy = 0;
 	//mouse and selected tile position
 	int mx, my, sx, sy;
 	bool selected = false;
+	bool start_input = false;
 	
-	//variables
+	//simulation variables
 	float time = 0;
 	int frame = 0, counter = 0;
-	bool last_blink = false;
 	bool running = false, start = false, stop = false;
-	bool start_input = false;
+	bool last_blink = false;
+	
 	
 	//tile selection / deselection functions
 	auto Select = [&selected, &sx, &sy](int x, int y) -> void {
@@ -118,161 +130,250 @@ int main() {
 		tile_menu->Hide();
 	};
 	
+	auto ThrowMessage = [&p](string str, int x = 0, int y = 0) -> void {
+		Panel pmsg(-1, x,y, str.length(),1);
+		pmsg.AddString(0,0, str);
+		p.Add(make_shared<Panel>(pmsg));
+	};
+	auto OpenStringInputBox = [&p, &input_string, &string_panel, &reading_string](int id, string str, int x = 0, int y = 0) -> void {
+		input_string = "";
+		Panel pinput(id, x,y, str.length(),2);
+		pinput.AddString(0,0, str);
+		pinput.AddString(0,1, "");
+		pinput.SetRenderCallback([&input_string](Panel& pn, render_info& info, int x, int y, int w, int h) -> void {
+			pn.Fit(input_string.length(), h);
+			pn.EditString(1, input_string);
+		});
+		p.Add(make_shared<Panel>(pinput));
+		reading_string = true;
+		string_panel = id;
+	};
+	
+	
 	//game loop
 	while (true) {
 		//user input
-		ch = getch();
-		switch (ch) {
-			case 'q':
-				endwin();
-				return 0;
-			case 'w':
-			case KEY_UP:
-				cy -= move_amount;
-				sy += move_amount;
-				break;
-			case 's':
-			case KEY_DOWN:
-				cy += move_amount;
-				sy -= move_amount;
-				break;
-			case 'a':
-			case KEY_LEFT:
-				cx -= move_amount * 2;
-				sx += move_amount * 2;
-				break;
-			case 'd':
-			case KEY_RIGHT:
-				cx += move_amount * 2;
-				sx -= move_amount * 2;
-				break;
-			case 'f':
-				cx = 0;
-				cy = 0;
-				Deselect();
-				break;
-			case '0':
-			case '1':
-			case '\n':
-				if (running) break;
-				if (!start_input) {
-					p.RemoveAll(-1);
-					//clear input
-					input_marbles.clear();
-					//create input panel
-					Panel pinput(1, 0,info.h-4, info.w-2,2);
-					pinput.AddString(0,0, "Enter input marbles (0 / 1):");
-					pinput.SetCharacterCallback(input_marble_callback);
-					p.Add(make_shared<Panel>(pinput));
+		while ((ch = getch()) != ERR) {
+			//for string input panels
+			if (reading_string && ch != KEY_MOUSE) {
+				if (ch >= 32 && ch < 128) {
+					input_string += static_cast<char>(ch);
+					continue;
 				}
-				//add marble to list
-				if (ch == '0')
-					input_marbles.push_back(false);
-				else if (ch == '1')
-					input_marbles.push_back(true);
-				else if (start_input) {
-					start_input = false;
-					p.RemoveAll(1);
-					if (input_marbles.size() == 0) {
-						string err_str = "Error: No marbles specified";
-						Panel perr(-1, 0,0, err_str.length(),1);
-						perr.AddString(0,0, err_str);
-						p.Add(make_shared<Panel>(perr));
-						break;
+				if (ch == KEY_BACKSPACE) {
+					if (!input_string.empty())
+						input_string.pop_back();
+					continue;
+				}
+				if (ch == '\n') {
+					reading_string = false;
+					p.RemoveAll(string_panel);
+					
+					ofstream save;
+					ifstream load;
+					switch (string_panel) {
+						case 8: //save filename
+							save.open(input_string + ".ttsim");
+							if (!save.is_open()) {
+								ThrowMessage("Could not open \"" + input_string + "\"");
+								break;
+							}
+							g->Serialize(save);
+							save.close();
+							break;
+						case 9: //load filename
+							load.open(input_string);
+							if (!load.is_open()) {
+								ThrowMessage("Could not find \"" + input_string + "\"");
+								break;
+							}
+							if (g->Deserialize(load))
+								ThrowMessage("Failed to parse \"" + input_string + "\"");
+							load.close();
+							break;
+						default:
+							ThrowMessage("Internal Error: Unsure what to do with this");
+							break;
 					}
-					start = true;
-					break;
+					continue;
 				}
-				start_input = true;
-				break;
-			case KEY_BACKSPACE:
-				if (start_input) {
-					input_marbles.pop_back();
+				continue;
+			}
+			
+			//general controls
+			switch (ch) {
+				case 'q':
+					endwin();
+					return 0;
+				case 'w':
+				case KEY_UP:
+					cy -= move_amount;
+					sy += move_amount;
 					break;
-				}
-				if (running) {
-					stop = true;
+				case 's':
+				case KEY_DOWN:
+					cy += move_amount;
+					sy -= move_amount;
 					break;
-				}
-				break;
-			case KEY_MOUSE:
-				if (running) break;
-				//process mouse input
-				if (getmouse(&mevent) == OK) {
-					//get mouse position
-					mx = mevent.x, my = mevent.y;
-					//get click types
-					bool left_click =    static_cast<bool>(mevent.bstate & BUTTON1_PRESSED);
-					bool right_click =   static_cast<bool>(mevent.bstate & BUTTON3_PRESSED);
-					bool control_click = static_cast<bool>(mevent.bstate & BUTTON_CTRL);
-					if (!left_click && !right_click) break;
-					//check if clicked on panel
-					shared_ptr<Panel> pclick = nullptr;
-					int ox = -1, oy = -1;
-					bool inside_panel = p.Inside(mx, my, ox, oy, pclick);
-					
-					//get selected position in scene
-					int wx, wy;
-					toWorldCoords(info, cx + sx, cy + sy, wx, wy);
-					tile t = g->GetTile(wx, wy);
-					
-					if (inside_panel) {
-						if (left_click && (ox < 0 || oy < 0)) break;
-						if (right_click) {
-							Deselect();
-							//if not important, remove panel
-							if (pclick->id < 0)
-								p.Remove(pclick);
+				case 'a':
+				case KEY_LEFT:
+					cx -= move_amount * 2;
+					sx += move_amount * 2;
+					break;
+				case 'd':
+				case KEY_RIGHT:
+					cx += move_amount * 2;
+					sx -= move_amount * 2;
+					break;
+				case 'f':
+					cx = 0;
+					cy = 0;
+					Deselect();
+					break;
+				//save / load
+				case 'k':
+					if (!start_input && !reading_string) {
+						OpenStringInputBox(8, "Enter save filename");
+					}
+					break;
+				case 'l':
+					if (!start_input && !reading_string) {
+						OpenStringInputBox(9, "Enter load filename");
+					}
+					break;
+				//input marble panel
+				case '0':
+				case '1':
+				case '\n':
+					if (running) break;
+					if (!start_input) {
+						p.RemoveAll(-1);
+						//clear input
+						input_marbles.clear();
+						//create input panel
+						Panel pinput(1, 0,info.h-4, info.w-2,2);
+						pinput.AddString(0,0, "Enter input marbles (0 / 1):");
+						pinput.SetCharacterCallback(input_marble_callback);
+						p.Add(make_shared<Panel>(pinput));
+					}
+					//add marble to list
+					if (ch == '0')
+						input_marbles.push_back(false);
+					else if (ch == '1')
+						input_marbles.push_back(true);
+					else if (start_input) {
+						start_input = false;
+						p.RemoveAll(1);
+						if (input_marbles.size() == 0) {
+							ThrowMessage("Error: No marbles specified");
 							break;
 						}
-						//tile menu clicked
-						if (pclick->id == 0 && selected) {
-							const int off = oy * tmenu_size + ox;
-							if (off >= tiles.size()) break;
-							if (t) break;
-							g->AddTile(wx, wy, tiles[off]->Copy());
-							Deselect();
-							break;
-						}
+						start = true;
 						break;
 					}
-					
-					//get mouse position in scene
-					toWorldCoords(info, cx + mx, cy + my, wx, wy);
-					t = g->GetTile(wx, wy);
-					
-					if (left_click) {
-						//interract with tile
-						if (t) {
-							if (!control_click) {
-								t->Interract();
+					start_input = true;
+					break;
+				case KEY_BACKSPACE:
+					if (start_input) {
+						if (input_marbles.size() > 0) input_marbles.pop_back();
+						break;
+					}
+					if (running) {
+						stop = true;
+						break;
+					}
+					break;
+				case KEY_MOUSE:
+					if (running) break;
+					//process mouse input
+					if (getmouse(&mevent) == OK) {
+						//get mouse position
+						mx = mevent.x, my = mevent.y;
+						//get click types
+						bool left_click =    static_cast<bool>(mevent.bstate & BUTTON1_PRESSED);
+						bool right_click =   static_cast<bool>(mevent.bstate & BUTTON3_PRESSED);
+						bool control_click = static_cast<bool>(mevent.bstate & BUTTON_CTRL);
+						if (!left_click && !right_click) break;
+						//check if clicked on panel
+						shared_ptr<Panel> pclick = nullptr;
+						int ox = -1, oy = -1;
+						bool inside_panel = p.Inside(mx, my, ox, oy, pclick);
+						
+						//get selected position in scene
+						int wx, wy;
+						toWorldCoords(info, cx + sx, cy + sy, wx, wy);
+						tile t = g->GetTile(wx, wy);
+						
+						if (inside_panel) {
+							if (left_click && (ox < 0 || oy < 0)) break;
+							if (right_click) {
 								Deselect();
-							} else {
-								Select(mx, my);
+								//if not important, remove panel
+								if (pclick->id < 0)
+									p.Remove(pclick);
+								//marble input panel
+								if (pclick->id == 1) {
+									p.Remove(pclick);
+									start_input = false;
+								}
+								//string input
+								if (pclick->id >= 8) {
+									p.Remove(pclick);
+									reading_string = false;
+								}
+								break;
+							}
+							//tile menu clicked
+							if (pclick->id == 0 && selected) {
+								const int off = oy * tmenu_size + ox;
+								if (off >= tiles.size()) break;
+								if (t) break;
+								g->AddTile(wx, wy, tiles[off]->Copy());
+								Deselect();
+								break;
 							}
 							break;
 						}
-						if (selected) {
+						
+						//get mouse position in scene
+						toWorldCoords(info, cx + mx, cy + my, wx, wy);
+						t = g->GetTile(wx, wy);
+						
+						if (left_click) {
+							//interract with tile
+							if (t) {
+								if (!control_click) {
+									t->Interract();
+									Deselect();
+								} else {
+									Select(mx, my);
+								}
+								break;
+							}
+							if (selected) {
+								Deselect();
+								break;
+							}
+							//select empty tile and show menu
+							Select(mx, my);
+							time = 0;
+							tile_menu->Show();
+							tile_menu->Move(mx+1, my+1);
+						} else {
+							//right click
+							if (!selected) {
+								g->RemoveTile(wx, wy);
+							}
 							Deselect();
-							break;
 						}
-						//select empty tile and show menu
-						Select(mx, my);
-						time = 0;
-						tile_menu->Show();
-						tile_menu->Move(mx+1, my+1);
-					} else {
-						//right click
-						if (!selected) {
-							g->RemoveTile(wx, wy);
-						}
-						Deselect();
 					}
-				}
-				break;
+					break;
+			}
 		}
 		
-		//rendering
+		
+		//Rendering
+		
 		bool blink = (time >= 0.5 || running);
 		g->Render(info, cx, cy, blink, selected ? sx : -1, sy);
 		if (blink && !last_blink) {
@@ -280,6 +381,9 @@ int main() {
 				(*it)->Interract();
 		}
 		last_blink = blink;
+		
+		
+		// Simulation
 		
 		if (running) {
 			counter++;
