@@ -1,0 +1,6 @@
+1 3 OutputDirection
+0 2 Bit -1
+-1 1 Ramp 1
+-1 3 OutputDirection
+1 1 Ramp -1
+0 0 Drop
