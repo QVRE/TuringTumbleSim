@@ -57,11 +57,11 @@ int main() {
 	tiles.push_back(make_shared<GearBitTile>());
 	tiles.push_back(make_shared<CrossTile>());
 	tiles.push_back(make_shared<GearTile>());
-	tiles.push_back(make_shared<RecursiveTile>());
 	tiles.push_back(make_shared<OutputValueTile>());
 	tiles.push_back(make_shared<OutputDirectionTile>());
 	tiles.push_back(make_shared<ExitTile>());
 	tiles.push_back(make_shared<LoopTile>());
+	tiles.push_back(make_shared<RecursiveTile>());
 	int tmenu_size = static_cast<int>(ceil(sqrt(static_cast<float>(tiles.size()))));
 	
 	//construct tile menu
