@@ -306,6 +306,18 @@ void DrawChar(gfx_char c, int x, int y, bool color) {
 	mvaddch(y, x, c.c);
 }
 
+void DrawString(string& str, int x, int y, draw_params& p, bool color) {
+	attron(p.attr);
+	short pair = p.color + 1;
+	if (color) {
+		attron(COLOR_PAIR(pair));
+	}
+	
+	mvprintw(y, x, str.c_str());
+	
+	attroff(COLOR_PAIR(pair) | p.attr);
+}
+
 void DrawBox(int x1, int y1, int x2, int y2) {
 	//ensure correct order
 	if (x1 > x2) swap(x1, x2);
@@ -331,13 +343,15 @@ void DrawBox(int x1, int y1, int x2, int y2) {
 		mvhline(i, x1+1, ' ', dx-1);
 }
 
-void Panel::AddString(int x, int y, string s) {
-	str.push_back(tuple<int, int, string>(x, y, s));
+void Panel::AddString(int x, int y, string s, draw_params p) {
+	str.push_back(make_tuple(x, y, s, p));
+	Fit(x + s.length(), y + 1);
 }
 
 void Panel::EditString(int index, string s) {
 	if (index < 0 || index >= str.size()) return;
 	get<2>(str[index]) = s;
+	Fit(x + s.length(), y + 1);
 }
 
 void Panel::Render(render_info& info) {
@@ -348,7 +362,7 @@ void Panel::Render(render_info& info) {
 	
 	//strings
 	for (auto it = str.begin(); it != str.end(); it++) {
-		mvprintw(y+1+get<1>(*it), x+1+get<0>(*it), get<2>(*it).c_str());
+		DrawString(get<2>(*it), x+1+get<0>(*it), y+1+get<1>(*it), get<3>(*it), info.color);
 	}
 	
 	//call render function with offset and width,height

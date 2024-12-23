@@ -20,8 +20,6 @@ struct gfx_char {
 	short fg, bg; //foreground and background colors
 };
 
-void DrawChar(gfx_char c, int x, int y, bool color = false);
-
 bool isOdd(int x, int y);
 void toWorldCoords(render_info& info, int x, int y, int& wx, int& wy);
 
@@ -448,6 +446,37 @@ public:
 
 // GUI
 
+struct draw_params {
+public:
+	int attr;
+	short color;
+	
+	draw_params() : attr(0), color(COLOR_WHITE) {}
+	
+	void SetColor(short clr) { color = clr; }
+	
+	void SetBold(bool v = true) {
+		attr &= ~(A_BOLD);
+		attr |= (v ? A_BOLD : 0);
+	}
+	void SetUnderline(bool v = true) {
+		attr &= ~(A_UNDERLINE);
+		attr |= (v ? A_UNDERLINE : 0);
+	}
+	void SetDim(bool v = true) {
+		attr &= ~(A_DIM);
+		attr |= (v ? A_DIM : 0);
+	}
+	
+	draw_params(short clr, bool bold = false, bool underline = false, bool dim = false) : color(clr) {
+		SetBold(bold);
+		SetUnderline(underline);
+		SetDim(dim);
+	}
+};
+
+void DrawChar(gfx_char c, int x, int y, bool color = false);
+void DrawString(string& str, int x, int y, draw_params& p, bool color = false);
 void DrawBox(int x1, int y1, int x2, int y2);
 
 class Panel {
@@ -456,7 +485,7 @@ private:
 	int w, h;
 	bool hide;
 	
-	vector<tuple<int, int, string>> str;
+	vector<tuple<int, int, string, draw_params>> str;
 	
 	//callback functions
 	typedef function<gfx_char(render_info&, int, int)> charFunction;
@@ -482,11 +511,17 @@ public:
 	void Show(void) { hide = false; }
 	bool IsHidden(void) const { return hide; }
 	
-	void AddString(int x, int y, string s);
+	void AddString(int x, int y, string s, draw_params p = draw_params());
 	void EditString(int index, string s);
 	
 	void SetCharacterCallback(charFunction cf) { charFunc = cf; }
 	void SetRenderCallback(renderFunction rf) { renderFunc = rf; }
+	
+	//convenience constructors
+	
+	Panel(string str, int id = -1, int x = 0, int y = 0) : Panel(id, x, y, str.length(), 1) {
+		AddString(0, 0, str);
+	}
 	
 	//if panel is touched, returns true and sets offset. Border returns an offset of (-1,-1)
 	bool Inside(int x, int y, int& ox, int& oy) const;

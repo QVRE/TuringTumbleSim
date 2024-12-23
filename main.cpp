@@ -50,6 +50,9 @@ int main() {
 		return 0;
 	}
 	
+	
+	//Tile menu
+	
 	//tile prefabs
 	vector<tile> tiles;
 	tiles.push_back(make_shared<RampTile>());
@@ -62,9 +65,8 @@ int main() {
 	tiles.push_back(make_shared<ExitTile>());
 	tiles.push_back(make_shared<LoopTile>());
 	tiles.push_back(make_shared<RecursiveTile>());
-	int tmenu_size = static_cast<int>(ceil(sqrt(static_cast<float>(tiles.size()))));
 	
-	//construct tile menu
+	int tmenu_size = static_cast<int>(ceil(sqrt(static_cast<float>(tiles.size()))));
 	Panel tmenu(0, 0,0, tmenu_size,tmenu_size);
 	tmenu.SetCharacterCallback([tiles, tmenu_size](render_info& info, int x, int y) -> gfx_char {
 		try {
@@ -75,11 +77,32 @@ int main() {
 	});
 	tmenu.Hide();
 	
-	//construct tile options menu
+	
+	// Tile options
+	
 	Panel toptmenu(2, 0,0, 5,2);
 	toptmenu.AddString(0,0, "Copy ");
 	toptmenu.AddString(0,1, "Enter");
 	toptmenu.Hide();
+	
+	
+	// Greeter panel
+	
+	Panel welcome(-1);
+	welcome.AddString(1,0, "Welcome to Turing Tumble Sim", draw_params(COLOR_YELLOW+8, true, true));
+	welcome.AddString(0,1, "Controls:", draw_params(COLOR_WHITE, true));
+	welcome.AddString(0,2, "WASD/arrows to move the camera");
+	welcome.AddString(0,3, "F to recenter camera to (0,0)");
+	welcome.AddString(0,4, "Q to quit (without saving)");
+	welcome.AddString(0,5, "Enter to start simulation");
+	welcome.AddString(0,6, "Backspace to go back / abort");
+	welcome.AddString(0,7, "K / L to save or load the grid");
+	welcome.AddString(0,8, "right click to close menus");
+	welcome.AddString(0,9, "left click:", draw_params(COLOR_WHITE, true));
+	welcome.AddString(0,10, "- empty tile: open tile menu");
+	welcome.AddString(0,11, "- tile: interact");
+	welcome.AddString(0,12, "- tile + CTRL: open options");
+	
 	
 	//tile grid
 	Grid G;
@@ -89,13 +112,13 @@ int main() {
 	p.Add(tile_menu);
 	shared_ptr<Panel> tile_opt_menu = make_shared<Panel>(toptmenu);
 	p.Add(tile_opt_menu);
+	p.Add(make_shared<Panel>(welcome));
 	
 	
 	// Constants
 	
 	const int move_amount = 1;
 	const int frames_per_tick = 5;
-	
 	
 	// Variables
 	
@@ -146,8 +169,7 @@ int main() {
 	};
 	
 	auto ThrowMessage = [&p](string str, int x = 0, int y = 0) -> void {
-		Panel pmsg(-1, x,y, str.length(),1);
-		pmsg.AddString(0,0, str);
+		Panel pmsg(str, -1, x,y);
 		p.Add(make_shared<Panel>(pmsg));
 	};
 	auto OpenStringInputBox = [&p, &input_string, &string_panel, &reading_string](int id, string str, int x = 0, int y = 0) -> void {
@@ -156,7 +178,6 @@ int main() {
 		pinput.AddString(0,0, str);
 		pinput.AddString(0,1, "");
 		pinput.SetRenderCallback([&input_string](Panel& pn, render_info& info, int x, int y, int w, int h) -> void {
-			pn.Fit(input_string.length(), h);
 			pn.EditString(1, input_string);
 		});
 		p.Add(make_shared<Panel>(pinput));
