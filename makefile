@@ -12,7 +12,7 @@ all: $(TARGET)
 
 # Rule to build the target executable
 $(TARGET): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJS)
+	$(CXX) -o $@ $(OBJS) $(CXXFLAGS)
 
 # Rule to compile source files into object files
 %.o: %.cpp $(HEADERS)
