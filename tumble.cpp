@@ -199,6 +199,8 @@ bool RecursiveTile::Collide(Marble& m, collision_result& result) {
 		m.Start(grid.marble.GetDirection(), grid.marble.GetColor());
 	}
 	
+	result.output = internal_result.output;
+	
 	return done;
 }
 
